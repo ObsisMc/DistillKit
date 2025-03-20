@@ -58,6 +58,10 @@ device = accelerator.device
 
 # Load and preprocess dataset
 dataset = load_dataset(config["dataset"]["name"], split=config["dataset"]["split"])
+
+
+dataset = dataset.select(range(1000))
+
 dataset = dataset.shuffle(seed=config["dataset"]["seed"])
 if "num_samples" in config["dataset"]:
     dataset = dataset.select(range(config["dataset"]["num_samples"]))
@@ -65,6 +69,10 @@ if "num_samples" in config["dataset"]:
 # Load tokenizers
 teacher_tokenizer = AutoTokenizer.from_pretrained(config["models"]["teacher"])
 student_tokenizer = AutoTokenizer.from_pretrained(config["models"]["student"])
+
+student_tokenizer.padding_side  = 'left'
+teacher_tokenizer.padding_side  = 'left'
+
 
 # Apply chat template to student tokenizer
 student_tokenizer.chat_template = config["tokenizer"]["chat_template"]
@@ -136,7 +144,7 @@ def pad_logits(student_logits, teacher_logits):
     return student_logits, teacher_logits
 
 class LogitsTrainer(SFTTrainer):
-    def compute_loss(self, model, inputs, return_outputs=False):
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None,):
         inputs = {k: v.to(model.device) if hasattr(v, 'to') else v for k, v in inputs.items()}
         self.teacher_model = self.teacher_model.to(model.device)
         
@@ -165,7 +173,7 @@ class LogitsTrainer(SFTTrainer):
         return config["distillation"]["alpha"] * loss_kd + (1 - config["distillation"]["alpha"]) * original_loss
 
 # Training arguments
-training_arguments = TrainingArguments(**config["training"])
+training_arguments = SFTConfig(**config["training"], max_seq_length=config["tokenizer"]["max_length"],dataset_text_field="text",)
 
 # Create the custom SFT Trainer
 trainer = LogitsTrainer(
@@ -174,8 +182,6 @@ trainer = LogitsTrainer(
     eval_dataset=tokenized_dataset["test"],
     tokenizer=student_tokenizer,
     args=training_arguments,
-    max_seq_length=config["tokenizer"]["max_length"],
-    dataset_text_field="text",
 )
 
 # Add the teacher model to the trainer
